@@ -1,20 +1,69 @@
 import { useEffect, useRef, useState } from "react";
+import { IKImage } from "imagekitio-react";
+import Markdown from "react-markdown";
+
+import Upload from "../upload/Upload";
+import model from "../../libs/gemini";
 
 import "./NewPrompt.css";
-import Upload from "../upload/Upload";
-import { IKImage } from "imagekitio-react";
 
 const NewPrompt = () => {
   const endRef = useRef(null);
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
   const [image, setImage] = useState({
     isLoading: false,
     error: "",
     dbData: {},
+    aiData: {},
+  });
+
+  const chat = model.startChat({
+    history: [
+      { role: "user", parts: [{ text: "Hello, I have 2 dogs in my house." }] },
+      {
+        role: "model",
+        parts: [{ text: "Great to meet you. What woukd you like to know?" }],
+      },
+    ],
+    generationConfig: {
+      // maxOutputTokens: 100,
+    },
   });
 
   useEffect(() => {
     endRef.current.scrollIntoView({ behavior: "smooth" });
-  }, []);
+  }, [question, answer, image.dbData]);
+
+  const add = async (prompt) => {
+    setQuestion(prompt);
+
+    const result = await chat.sendMessageStream(
+      Object.entries(image.aiData).length ? [image.aiData, prompt] : [prompt]
+    );
+    let accumulatedText = "";
+    for await (const chunk of result.stream) {
+      const chunkText = chunk.text();
+      accumulatedText += chunkText;
+      setAnswer(accumulatedText);
+    }
+
+    setImage({
+      isLoading: false,
+      error: "",
+      dbData: {},
+      aiData: {},
+    });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    const text = e.target.text.value;
+    if (!text) return;
+
+    add(text);
+  };
 
   return (
     <>
@@ -27,11 +76,17 @@ const NewPrompt = () => {
           transformation={{ width: 380 }}
         />
       )}
+      {question && <div className="message user">{question}</div>}
+      {answer && (
+        <div className="message">
+          <Markdown>{answer}</Markdown>
+        </div>
+      )}
       <div className="endChat" ref={endRef}></div>
-      <form className="newForm">
+      <form className="newForm" onSubmit={handleSubmit}>
         <Upload setImage={setImage} />
         <input id="file" type="file" multiple={false} hidden />
-        <input type="text" placeholder="Ask anything..." />
+        <input type="text" name="text" placeholder="Ask anything..." />
         <button>
           <img src="/arrow.png" alt="arrow" />
         </button>
