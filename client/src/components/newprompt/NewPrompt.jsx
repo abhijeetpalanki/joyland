@@ -26,9 +26,6 @@ const NewPrompt = () => {
         parts: [{ text: "Great to meet you. What woukd you like to know?" }],
       },
     ],
-    generationConfig: {
-      // maxOutputTokens: 100,
-    },
   });
 
   useEffect(() => {
