@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { IKImage } from "imagekitio-react";
 import Markdown from "react-markdown";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import Upload from "../upload/Upload";
 import model from "../../libs/gemini";
 
 import "./NewPrompt.css";
 
-const NewPrompt = () => {
+const NewPrompt = ({ data }) => {
   const endRef = useRef(null);
+  const formRef = useRef(null);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [image, setImage] = useState({
@@ -30,27 +32,63 @@ const NewPrompt = () => {
 
   useEffect(() => {
     endRef.current.scrollIntoView({ behavior: "smooth" });
-  }, [question, answer, image.dbData]);
+  }, [data, question, answer, image.dbData]);
 
-  const add = async (prompt) => {
-    setQuestion(prompt);
+  const queryClient = useQueryClient();
 
-    const result = await chat.sendMessageStream(
-      Object.entries(image.aiData).length ? [image.aiData, prompt] : [prompt]
-    );
-    let accumulatedText = "";
-    for await (const chunk of result.stream) {
-      const chunkText = chunk.text();
-      accumulatedText += chunkText;
-      setAnswer(accumulatedText);
+  const mutation = useMutation({
+    mutationFn: () => {
+      return fetch(`${import.meta.env.VITE_API_URL}/api/chats/${data._id}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          question: question.length ? question : undefined,
+          answer,
+          image: image.dbData?.filePath || undefined,
+        }),
+      }).then((res) => res.json());
+    },
+    onSuccess: () => {
+      queryClient
+        .invalidateQueries({ queryKey: ["chat", data._id] })
+        .then(() => {
+          formRef.current.reset();
+          setQuestion("");
+          setAnswer("");
+          setImage({
+            isLoading: false,
+            error: "",
+            dbData: {},
+            aiData: {},
+          });
+        });
+    },
+    onError: (err) => {
+      console.log(err);
+    },
+  });
+
+  const add = async (prompt, isInitial) => {
+    if (!isInitial) setQuestion(prompt);
+
+    try {
+      const result = await chat.sendMessageStream(
+        Object.entries(image.aiData).length ? [image.aiData, prompt] : [prompt]
+      );
+      let accumulatedText = "";
+      for await (const chunk of result.stream) {
+        const chunkText = chunk.text();
+        accumulatedText += chunkText;
+        setAnswer(accumulatedText);
+      }
+
+      mutation.mutate();
+    } catch (error) {
+      console.log(error);
     }
-
-    setImage({
-      isLoading: false,
-      error: "",
-      dbData: {},
-      aiData: {},
-    });
   };
 
   const handleSubmit = async (e) => {
@@ -59,8 +97,19 @@ const NewPrompt = () => {
     const text = e.target.text.value;
     if (!text) return;
 
-    add(text);
+    add(text, false);
   };
+
+  // in production we don't need it
+  const hasRun = useRef(false);
+  useEffect(() => {
+    if (!hasRun.current) {
+      if (data?.history?.length === 1) {
+        add(data.history[0].parts[0].text, true);
+      }
+    }
+    hasRun.current = true;
+  }, []);
 
   return (
     <>
@@ -80,7 +129,7 @@ const NewPrompt = () => {
         </div>
       )}
       <div className="endChat" ref={endRef}></div>
-      <form className="newForm" onSubmit={handleSubmit}>
+      <form className="newForm" onSubmit={handleSubmit} ref={formRef}>
         <Upload setImage={setImage} />
         <input id="file" type="file" multiple={false} hidden />
         <input type="text" name="text" placeholder="Ask anything..." />
